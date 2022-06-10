@@ -1,0 +1,6 @@
+beautifulsoup4
+celery
+numpy
+pandas
+psycopg2
+requests
