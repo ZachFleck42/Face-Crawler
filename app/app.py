@@ -1,3 +1,5 @@
+import face_recognition
+import os
 import pandas as pd
 import psycopg2
 import requests
@@ -31,12 +33,13 @@ def getLinks(webpageURL, parsedPage):
     are removed. Internal links are expanded to full URLs. Previously-visited 
     URLs, URLs currently in the queue, and links to different domains are also removed.
     '''
+    # Find all valid links (not NoneType) from the <a> tags on the webpage
     links = []
     for link in parsedPage.find_all('a'):
         if (temp := link.get('href')):
             links.append(temp)
 
-    # Clean the links
+    # 'Clean' the links (see function docstring)
     linksClean = []
     for index, link in enumerate(links):
         # Ignore any links to the current page
@@ -86,6 +89,50 @@ def getLinks(webpageURL, parsedPage):
     return list(set(linksClean))
 
 
+def getImages(webpageURL, parsedPage):
+    '''
+    Accepts a webpage's URL and its BeautifulSoup4 nested data structure.
+    Returns a list of links to images (as strings) discovered on that webpage.
+    '''
+    # Find all valid images (not NoneType) from the <img> tags on the webpage
+    # Internal links are expanded to full URL, external links untouhced
+    imageLinks = []
+    for image in parsedPage.find_all('img'):
+        if (validImage := image.get('src')):
+            if validImage[0] == '/':
+                imageLinks.append(webpageURL + validImage)
+            else:
+                imageLinks.append(validImage)
+
+    # Remove unwanted HTTP GET key-value pairs
+    for imageLink in imageLinks:
+        if '?' in imageLink:
+            imageLink = imageLink[:imageLink.index('?')]
+
+    return imageLinks
+
+
+def downloadImages(imageLinks, path):
+    '''
+    Accepts a list of URLs to images (as strings) and a path to a local directory.
+    Function will download the images and store them in the directory.
+    Returns ???
+    '''
+    # Create directory for webpage if one does not already exist
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    # Download all of the images in imageLinks
+    for url in imageLinks:
+        filename = os.path.join(path, url.split("/")[-1])
+
+        with open(filename, 'wb') as f:
+            urlResponse = requests.get(url)
+            f.write(urlResponse.content)
+
+    return 0
+
+
 if __name__ == "__main__":
     # Check for valid number of arguments (2) in the script call.
     if (len(sys.argv) != 2):
@@ -130,11 +177,15 @@ if __name__ == "__main__":
             print(f"ERROR: {pageURL} could not be accessed. Continuing...")
             continue
 
-        # Parse the webpage into a BeautifulSoup4 data structure
+        # Parse the webpage into a BeautifulSoup4 nested data structure
         webpage = BeautifulSoup(pageResponse.text, 'html.parser')
 
-        # Collect some data from webpage
-        pageTitle = webpage.title.string
+        # Download all images from webpage into a local file directory
+        pageImageLinks = getImages(pageURL, webpage)
+        pageLocalDir = "app/imgs" + "/" + (urlparse(pageURL)).hostname + (urlparse(pageURL)).path
+        temp = downloadImages(pageImageLinks, pageLocalDir)
+
+        # Analyze the images with face_recognition package
 
         # Append the wanted data to database
         cur.execute(
