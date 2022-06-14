@@ -6,51 +6,77 @@ from bs4 import BeautifulSoup
 from psycopg2 import sql
 from urllib.parse import urlparse
 
-MAX_DEPTH = 3
+# Store the initial URL as a global variable for reference across functions
 INITIAL_URL = sys.argv[1]
 
+# Define a 'maximum depth', or how far removed from the main URL the program should explore
+MAX_DEPTH = 3
 
-def getLinks(webpageURL, parsedPage, visitedLinks):
+# Create a queue of URLs to visit and collect data from.
+# Each URL will also have a corresponding 'depth', or number of links
+# removed from the original URL.
+# Thus, the queue will be a list of tuples in the form (string URL, int Depth)
+urls = []
+
+# Create a list of already-visited links to prevent visiting the same page twice
+visitedLinks = []
+
+
+def getLinks(webpageURL, parsedPage):
     '''
-    Accepts a webpage's URL, its BeautifulSoup4 nested data structure, and a 
-    list of previously-visited URLs, and returns a list of links (as strings) 
-    discovered on that webpage.
+    Accepts a webpage's URL and its BeautifulSoup4 nested data structure.
+    Returns a list of links (as strings) discovered on that webpage.
 
-    Links are 'cleaned', meaning page anchors are removed, internal links are 
-    expanded to full URL, and previously-visited URLs are removed.
+    Links are 'cleaned', meaning page anchor, email address, and telephone links
+    are removed. Internal links are expanded to full URLs. Previously-visited 
+    URLs, URLs currently in the queue, and links to different domains are also removed.
     '''
     parsedURL = urlparse(webpageURL)
+    initialHostName = (urlparse(INITIAL_URL)).hostname
 
     # Obtain raw list of links found in the webpages <a> tags
+    # TODO: Account for non-href <a> tags
     links = []
     for link in parsedPage.find_all('a'):
         links.append(link.get('href'))
 
-    # Remove any links to the current page
-    for link in links.copy():
-        if link == "/":
-            links.remove(link)
+    # 'Clean' the raw links pulled from the webpage
+    for index, link in enumerate(links.copy()):
 
-    # Remove page anchors from list
-    for link in links.copy():
-        if link[0] == '#':
+        # Remove any links to the current page
+        if link == '/':
             links.remove(link)
+            continue
 
-    # Remove email address links
-    for link in links.copy():
+        # Remove page anchor links
+        if '#' in link:
+            links.remove(link)
+            continue
+
+        # Remove email address links
         if link[:7] == "mailto:":
             links.remove(link)
+            continue
 
-    # Expand internal links to full URL
-    for index, link in enumerate(links.copy()):
+        # Remove telephone links
+        if link[:4] == "tel:":
+            links.remove(link)
+            continue
+
+        # Expand internal links to full URLs
         if link[0] == '/':
             links[index] = parsedURL.scheme + "://" + parsedURL.hostname + link
 
-    # If 'visitedLinks' list defined, remove all previously-visited URLs
-    if (len(visitedLinks) > 0):
-        for link in links.copy():
-            if link in visitedLinks:
-                links.remove(link)
+        # Remove links to other domains
+        linkHostName = (urlparse(link)).hostname
+        if initialHostName != linkHostName:
+            links.remove(link)
+            continue
+
+        # Remove all links to previously-visited URLs
+        if link in visitedLinks:
+            links.remove(link)
+            continue
 
     # Remove any duplicate links in the list
     links = list(set(links))
@@ -59,15 +85,6 @@ def getLinks(webpageURL, parsedPage, visitedLinks):
 
 
 if __name__ == "__main__":
-    # Create a queue of URLs to visit and collect data from.
-    # Each URL will also have a corresponding 'depth', or number of links
-    # removed from the original URL.
-    # Thus, the queue will be a list of tuples in the form (string URL, int Depth)
-    urls = []
-
-    # Create a list of already-visited links to prevent visiting the same page twice
-    visitedLinks = []
-
     # Check for valid number of arguments (2) in the script call.
     if (len(sys.argv) != 2):
         print("FATAL ERROR: Improper number of arguments. "
