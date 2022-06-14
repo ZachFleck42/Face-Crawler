@@ -143,13 +143,20 @@ def getFaces(path):
     '''
     Fuction accepts a folder directory containing one or more images.
     Returns a dictionary with key values of {"filename": no. of faces in image}.
+    Function will also delete all images in path that do not contain faces.
     '''
     faces = {}
+    # Iterate through each file in the specified directory
     for file in os.listdir(path):
         fileName = os.path.join(path, file)
-        image = face_recognition.load_image_file(fileName)
-        face_locations = face_recognition.face_locations(image)
+        # Make sure 'path' is to a file, not a directory
+        if os.path.isfile(fileName):
+            image = face_recognition.load_image_file(fileName)
+            face_locations = face_recognition.face_locations(image)
+        else:
+            continue
 
+        # If the image has no faces, delete it from local directory
         if len(face_locations) > 0:
             faces[fileName] = len(face_locations)
         else:
@@ -207,19 +214,21 @@ if __name__ == "__main__":
         webpage = BeautifulSoup(pageResponse.text, 'html.parser')
 
         # Download all images from webpage into a local file directory
+        # Directory takes form '/app/imgs/<website-host-name>/<webpage-path>
         pageImageLinks = getImages(pageURL, webpage)
         pageLocalDir = "app/imgs" + "/" + (urlparse(pageURL)).hostname + (urlparse(pageURL)).path
-        noImagesDownloaded = downloadImages(pageImageLinks, pageLocalDir)
+        numDownloads = downloadImages(pageImageLinks, pageLocalDir)
 
-        # Count how many faces are on page with face_recognition package
+        # Count how many faces are on the page with face_recognition package
         pageFaceImages = getFaces(pageLocalDir)
+
         pageFaceCount = 0
         for noFaces in pageFaceImages.values():
             pageFaceCount += noFaces
 
         websiteFaceCount += pageFaceCount
 
-        # Append the wanted data to database
+        # Append data to the database
         cur.execute(
             sql.SQL("INSERT INTO {} VALUES (%s, %s)")
             .format(sql.Identifier(websiteName)),
@@ -234,7 +243,7 @@ if __name__ == "__main__":
             for newURL in pageLinks:
                 urls.append((newURL, newDepth))
 
-    # ! Testing
+    # Print results to terminal
     query = sql.SQL("SELECT * FROM {};").format(sql.Identifier(websiteName))
     cur.execute(query)
     rows = cur.fetchall()
@@ -246,7 +255,6 @@ if __name__ == "__main__":
     cur.close()
     conn.close()
 
-    # Print some sort of conclusion message (with helpful stats)
+    # Print a conclusion message to indicate successful termination
     print("------")
     print(f"Total faces found on website: {websiteFaceCount}")
-    print("Finito")
