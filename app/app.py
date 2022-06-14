@@ -1,132 +1,148 @@
 import pandas as pd
-# import psycopg2
-# import re
+import psycopg2
 import requests
 import sys
 from bs4 import BeautifulSoup
-# from celery import Celery
+from psycopg2 import sql
 from urllib.parse import urlparse
 
-MAX_DEPTH = 10
+MAX_DEPTH = 3
+INITIAL_URL = sys.argv[1]
 
 
-def parseWebpage(url):
+def getLinks(webpageURL, parsedPage, visitedLinks):
     '''
-    Parses a webpage from its URL.
+    Accepts a webpage's URL, its BeautifulSoup4 nested data structure, and a 
+    list of previously-visited URLs, and returns a list of links (as strings) 
+    discovered on that webpage.
 
-    Parameters
-    ----------
-        url : A website url (string)
-
-    Returns
-    -------
-        A parsed HTML webpage data stucture from BeautifulSoup4
+    Links are 'cleaned', meaning page anchors are removed, internal links are 
+    expanded to full URL, and previously-visited URLs are removed.
     '''
-    webpage = requests.get(url)
-    webpageHTMLDoc = webpage.text
+    parsedURL = urlparse(webpageURL)
 
-    return BeautifulSoup(webpageHTMLDoc, 'html.parser')
-
-
-def getLinks(parsedPage):
-    '''
-    Finda all the URLs found on a webpage and stores them in a list.
-
-    Parameters
-    ----------
-        parsedPage: A parsed HTML webpage data structure from BeautifulSoup4
-
-    Returns
-    -------
-        links: A list of all links found in that webpage's <a> tags
-    '''
+    # Obtain raw list of links found in the webpages <a> tags
     links = []
     for link in parsedPage.find_all('a'):
-        links.append(link)
+        links.append(link.get('href'))
+
+    # Remove any links to the current page
+    for link in links.copy():
+        if link == "/":
+            links.remove(link)
+
+    # Remove page anchors from list
+    for link in links.copy():
+        if link[0] == '#':
+            links.remove(link)
+
+    # Remove email address links
+    for link in links.copy():
+        if link[:7] == "mailto:":
+            links.remove(link)
+
+    # Expand internal links to full URL
+    for index, link in enumerate(links.copy()):
+        if link[0] == '/':
+            links[index] = parsedURL.scheme + "://" + parsedURL.hostname + link
+
+    # If 'visitedLinks' list defined, remove all previously-visited URLs
+    if (len(visitedLinks) > 0):
+        for link in links.copy():
+            if link in visitedLinks:
+                links.remove(link)
+
+    # Remove any duplicate links in the list
+    links = list(set(links))
 
     return links
 
 
-def cleanLinks(sourceWebpageURL, webpageLinks, visitedLinks=[]):
-    '''
-    Removes page anchors and expands internal links from a list of links.
-    Optionally removes URLs that have already been visited.
-
-    Parameters
-    ----------
-        sourceWebpageURL: The URL of the source webpage
-        webpageLinks: A raw list of all the links pulled from the source webpage
-        (Optional) visitedLinks: A list of URLs that have already been visited
-
-    Returns
-    -------
-        ???: A 'cleaned' list of URLs
-    '''
-    # TODO: Implement function
-    pass
-
-
 if __name__ == "__main__":
-    # Create empty list of tuples containing URL strings and their 'depths'
-    # The 'depth' of all initial URLs will be '0'
+    # Create a queue of URLs to visit and collect data from.
+    # Each URL will also have a corresponding 'depth', or number of links
+    # removed from the original URL.
+    # Thus, the queue will be a list of tuples in the form (string URL, int Depth)
     urls = []
-
-    # Check for valid number of arguments (1 or 2)
-    # If only 1 argument (the script name only), ask user to input a URL
-    if (len(sys.argv) > 2):
-        # TODO: Add error for improper number of arguments
-        pass
-    elif (len(sys.argv) < 2):
-        print("No file input. Enter a website URL (or enter 'q' to quit): ")
-        # TODO: If 'q' input, exit program
-        # TODO: Use RegEx to verify valid URL input?
-        pass
-    else:
-        # Indentify file extension and read file accordingly
-        fileExtension = (sys.argv[1]).rstrip[-4:]
-
-        if (fileExtension == ".csv"):
-            # TODO: Read URLs from .csv files
-            pass
-        elif (fileExtension == ".xlsx"):
-            # TODO: Read URLs from Excel files
-            pass
-        elif (fileExtension == ".???"):
-            pass
-        else:
-            # TODO: Add error for unknown/unsupported file types
-            pass
 
     # Create a list of already-visited links to prevent visiting the same page twice
     visitedLinks = []
 
+    # Check for valid number of arguments (2) in the script call.
+    if (len(sys.argv) != 2):
+        print("FATAL ERROR: Improper number of arguments. "
+              "Please call program as: 'python app.py YOUR-URL-HERE'")
+        sys.exit()
+    else:
+        initialURL = sys.argv[1]
+        initialHost = urlparse(initialURL).hostname
+        urls.append((initialURL, 0))  # Initial URL has a depth of 0
+
+    # Connect to PostgresSQL database and prepare to enter data
+    conn = psycopg2.connect(host="postgres-db", database="postgres", user="postgres", password="postgres")
+    cur = conn.cursor()
+
+    # Create a new table for the website in the database
+    websiteName = []
+    for char in initialHost:
+        if char == '.':
+            break
+        websiteName.append(char)
+    websiteName = ''.join(websiteName)
+
+    cur.execute(sql.SQL("CREATE TABLE {} (pageURL VARCHAR, pageTitle VARCHAR)")
+                .format(sql.Identifier(websiteName)))
+
+    # Initialization is now done; begin processing the queue
     for url in urls:
+        # Append current URL to 'visitedLinks' list to prevent visiting again later
+        pageURL = url[0]
+        visitedLinks.append(pageURL)
+
+        # Use Requests package to obtain a 'Response' object from the webpage,
+        # containing page's HTML, connection status, and other useful info.
+        pageResponse = requests.get(pageURL)
+
+        # Perform error checking on the URL connection.
+        # If webpage can't be properly connected to, an error is raised and
+        # program skips to next url in the queue.
+        pageStatus = pageResponse.status_code
+        if pageStatus != 200:
+            print(f"ERROR: {pageURL} could not be accessed. Continuing...")
+            continue
+
         # Parse the webpage into a BeautifulSoup4 data structure
-        # TODO: Check for errors (using code returned from 'request'?)
-        webpage = parseWebpage(url[0])
+        webpage = BeautifulSoup(pageResponse.text, 'html.parser')
+
+        # Collect some data from webpage
+        pageTitle = webpage.title.string
+
+        # Append the wanted data to database
+        cur.execute(
+            sql.SQL("INSERT INTO {} VALUES (%s, %s)")
+            .format(sql.Identifier(websiteName)),
+            [pageURL, pageTitle])
 
         # Get a list of all the links found within a page's <a> tags
-        webpageLinksRaw = getLinks(webpage)
+        # Returned links will be 'cleaned' (see function docstring)
+        pageLinks = getLinks(pageURL, webpage, visitedLinks)
 
-        # Remove anchor, internal, and already-visited links
-        webpageLinksClean = cleanLinks(url[0], webpageLinksRaw, visitedLinks)
+        # Append unvisited links to 'urls' list (if their depth does not exceed MAX_DEPTH)
+        if (newDepth := url[1] + 1) <= MAX_DEPTH:
+            for newURL in pageLinks:
+                urls.append((newURL, newDepth))
 
-        # Add depths to all unvisited URLs and append the tuple to 'urls' list
-        for newURL in webpageLinksClean:
-            # If the URL is on the same domain as the current URL
-            if urlparse(newURL).netloc == urlparse(url[0]).netloc:
-                urls.append((newURL, url[1]))
-            # Otherwise, check that the new depth does not exceed MAX_DEPTH
-            elif ((linkDepth := url[1] + 1) <= MAX_DEPTH):
-                urls.append((newURL, linkDepth))
-            else:
-                continue
+    # ! Testing
+    query = sql.SQL("SELECT * FROM {};").format(sql.Identifier(websiteName))
+    cur.execute(query)
+    rows = cur.fetchall()
+    for row in rows:
+        print(row)
 
-        # TODO: Collect requested data from webpage
+    # Append changes to database and close connections
+    conn.commit()
+    cur.close()
+    conn.close()
 
-        # TODO: Append the wanted data to database
-
-        # Add webpage to visited URLs list
-        visitedLinks.append(url[0])
-
-    # TODO: Print some sort of conclusion message (with helpful stats)
+    # Print some sort of conclusion message (with helpful stats)
+    print("done lol")

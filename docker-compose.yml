@@ -1,14 +1,33 @@
-version: "3.7"
+version: '3.9'
 
 services:
+  postgres-db:
+    image: postgres:14.3
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - 5432:5432
+    networks:
+      - test
+    volumes:
+      - database:/var/lib/postgresql/data
+
   app:
-    image: python:3.10.5
+    build: .
+    depends_on:
+      - postgres-db
+    ports:
+      - 8080:8080
+    networks:
+      - test
+    command: tail -f /dev/null
 
+volumes:
   database:
-    image:
 
 
-  broker:
-    image:
-
-
+networks:
+  test:
+    driver: bridge
