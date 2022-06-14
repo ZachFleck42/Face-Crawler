@@ -31,57 +31,59 @@ def getLinks(webpageURL, parsedPage):
     are removed. Internal links are expanded to full URLs. Previously-visited 
     URLs, URLs currently in the queue, and links to different domains are also removed.
     '''
-    parsedURL = urlparse(webpageURL)
-    initialHostName = (urlparse(INITIAL_URL)).hostname
-
-    # Obtain raw list of links found in the webpages <a> tags
-    # TODO: Account for non-href <a> tags
     links = []
     for link in parsedPage.find_all('a'):
-        links.append(link.get('href'))
+        if (temp := link.get('href')):
+            links.append(temp)
 
-    # 'Clean' the raw links pulled from the webpage
-    for index, link in enumerate(links.copy()):
-
-        # Remove any links to the current page
+    # Clean the links
+    linksClean = []
+    for index, link in enumerate(links):
+        # Ignore any links to the current page
         if link == '/':
-            links.remove(link)
             continue
 
-        # Remove page anchor links
+        # Ignore page anchor links
         if '#' in link:
-            links.remove(link)
             continue
 
-        # Remove email address links
+        # Ignore email address links
         if link[:7] == "mailto:":
-            links.remove(link)
             continue
 
-        # Remove telephone links
+        # Ignore telephone links
         if link[:4] == "tel:":
-            links.remove(link)
             continue
 
-        # Expand internal links to full URLs
+        # Expand internal links
+        parsedURL = urlparse(webpageURL)
         if link[0] == '/':
             links[index] = parsedURL.scheme + "://" + parsedURL.hostname + link
 
-        # Remove links to other domains
-        linkHostName = (urlparse(link)).hostname
-        if initialHostName != linkHostName:
-            links.remove(link)
+        # Ignore links to other domains
+        initalHost = (urlparse(INITIAL_URL)).hostname
+        linkHost = (urlparse(links[index])).hostname
+        if initalHost != linkHost:
             continue
 
-        # Remove all links to previously-visited URLs
-        if link in visitedLinks:
-            links.remove(link)
+        # Ignore all links to previously-visited URLs
+        if links[index] in visitedLinks:
             continue
 
-    # Remove any duplicate links in the list
-    links = list(set(links))
+        # Ignore links that are already in the queue
+        inQueue = False
+        for url in urls:
+            if url[0] == links[index]:
+                inQueue = True
+                break
+        if inQueue:
+            continue
 
-    return links
+        # All filters passed; link is appended to 'clean' list
+        linksClean.append(links[index])
+
+    # Remove any duplicate links in the list and return
+    return list(set(linksClean))
 
 
 if __name__ == "__main__":
@@ -142,7 +144,7 @@ if __name__ == "__main__":
 
         # Get a list of all the links found within a page's <a> tags
         # Returned links will be 'cleaned' (see function docstring)
-        pageLinks = getLinks(pageURL, webpage, visitedLinks)
+        pageLinks = getLinks(pageURL, webpage)
 
         # Append unvisited links to 'urls' list (if their depth does not exceed MAX_DEPTH)
         if (newDepth := url[1] + 1) <= MAX_DEPTH:
@@ -162,4 +164,5 @@ if __name__ == "__main__":
     conn.close()
 
     # Print some sort of conclusion message (with helpful stats)
-    print("done lol")
+    print("------")
+    print("Fin")
