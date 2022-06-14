@@ -10,7 +10,7 @@ services:
     ports:
       - 5432:5432
     networks:
-      - test
+      - backend
     volumes:
       - database:/var/lib/postgresql/data
 
@@ -21,7 +21,7 @@ services:
     ports:
       - 8080:8080
     networks:
-      - test
+      - backend
     command: tail -f /dev/null
 
 volumes:
@@ -29,5 +29,5 @@ volumes:
 
 
 networks:
-  test:
+  backend:
     driver: bridge
