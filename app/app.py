@@ -1,6 +1,5 @@
 import face_recognition
 import os
-import pandas as pd
 import psycopg2
 import requests
 import sys
@@ -15,8 +14,7 @@ INITIAL_URL = sys.argv[1]
 MAX_DEPTH = 3
 
 # Create a queue of URLs to visit and collect data from.
-# Each URL will also have a corresponding 'depth', or number of links
-# removed from the original URL.
+# Each URL will also have a corresponding 'depth', or number of links removed from the original URL.
 # Thus, the queue will be a list of tuples in the form (string URL, int Depth)
 urls = []
 
@@ -116,7 +114,6 @@ def getImages(webpageURL, parsedPage):
         if imageExtension not in acceptableExtensions:
             imageLinks.remove(imageLink)
 
-    print(imageLinks)
     return imageLinks
 
 
@@ -184,10 +181,11 @@ if __name__ == "__main__":
         websiteName.append(char)
     websiteName = ''.join(websiteName)
 
-    cur.execute(sql.SQL("CREATE TABLE {} (pageURL VARCHAR, pageTitle VARCHAR)")
+    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
                 .format(sql.Identifier(websiteName)))
 
     # Initialization is now done; begin processing the queue
+    websiteFaceCount = 0
     for url in urls:
         # Append current URL to 'visitedLinks' list to prevent visiting again later
         pageURL = url[0]
@@ -207,7 +205,6 @@ if __name__ == "__main__":
 
         # Parse the webpage into a BeautifulSoup4 nested data structure
         webpage = BeautifulSoup(pageResponse.text, 'html.parser')
-        pageTitle = webpage.title
 
         # Download all images from webpage into a local file directory
         pageImageLinks = getImages(pageURL, webpage)
@@ -215,16 +212,18 @@ if __name__ == "__main__":
         noImagesDownloaded = downloadImages(pageImageLinks, pageLocalDir)
 
         # Count how many faces are on page with face_recognition package
-        pageFaces = getFaces(pageLocalDir)
+        pageFaceImages = getFaces(pageLocalDir)
         pageFaceCount = 0
-        for faceCount in pageFaces.values():
-            pageFaceCount += faceCount
+        for noFaces in pageFaceImages.values():
+            pageFaceCount += noFaces
+
+        websiteFaceCount += pageFaceCount
 
         # Append the wanted data to database
         cur.execute(
             sql.SQL("INSERT INTO {} VALUES (%s, %s)")
             .format(sql.Identifier(websiteName)),
-            [pageURL, pageTitle])
+            [pageURL, pageFaceCount])
 
         # Get a list of all the links found within a page's <a> tags
         # Returned links will be 'cleaned' (see function docstring)
@@ -249,4 +248,5 @@ if __name__ == "__main__":
 
     # Print some sort of conclusion message (with helpful stats)
     print("------")
-    print("Fin")
+    print(f"Total faces found on website: {websiteFaceCount}")
+    print("Finito")
