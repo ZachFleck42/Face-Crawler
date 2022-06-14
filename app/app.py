@@ -100,7 +100,7 @@ def getImages(webpageURL, parsedPage):
     for image in parsedPage.find_all('img'):
         if (validImage := image.get('src')):
             if validImage[0] == '/':
-                imageLinks.append(webpageURL + validImage)
+                imageLinks.append(INITIAL_URL + validImage)
             else:
                 imageLinks.append(validImage)
 
@@ -109,6 +109,14 @@ def getImages(webpageURL, parsedPage):
         if '?' in imageLink:
             imageLink = imageLink[:imageLink.index('?')]
 
+    # Only get images with acceptable file extensions
+    acceptableExtensions = ["jpg", "jpeg", "png", "bmp"]
+    for imageLink in imageLinks.copy():
+        imageExtension = imageLink.split('.')[-1]
+        if imageExtension not in acceptableExtensions:
+            imageLinks.remove(imageLink)
+
+    print(imageLinks)
     return imageLinks
 
 
@@ -116,21 +124,41 @@ def downloadImages(imageLinks, path):
     '''
     Accepts a list of URLs to images (as strings) and a path to a local directory.
     Function will download the images and store them in the directory.
-    Returns ???
+    Returns number of files downloaded as an int.
     '''
-    # Create directory for webpage if one does not already exist
+    # Create a directory for the webpage (if one does not already exist)
     if not os.path.exists(path):
         os.makedirs(path)
 
-    # Download all of the images in imageLinks
+    # Download all of the images in imageLinks to the directory
+    fileCounter = 0
     for url in imageLinks:
         filename = os.path.join(path, url.split("/")[-1])
-
         with open(filename, 'wb') as f:
             urlResponse = requests.get(url)
             f.write(urlResponse.content)
+            fileCounter += 1
 
-    return 0
+    return fileCounter
+
+
+def getFaces(path):
+    '''
+    Fuction accepts a folder directory containing one or more images.
+    Returns a dictionary with key values of {"filename": no. of faces in image}.
+    '''
+    faces = {}
+    for file in os.listdir(path):
+        fileName = os.path.join(path, file)
+        image = face_recognition.load_image_file(fileName)
+        face_locations = face_recognition.face_locations(image)
+
+        if len(face_locations) > 0:
+            faces[fileName] = len(face_locations)
+        else:
+            os.remove(fileName)
+
+    return faces
 
 
 if __name__ == "__main__":
@@ -179,13 +207,18 @@ if __name__ == "__main__":
 
         # Parse the webpage into a BeautifulSoup4 nested data structure
         webpage = BeautifulSoup(pageResponse.text, 'html.parser')
+        pageTitle = webpage.title
 
         # Download all images from webpage into a local file directory
         pageImageLinks = getImages(pageURL, webpage)
         pageLocalDir = "app/imgs" + "/" + (urlparse(pageURL)).hostname + (urlparse(pageURL)).path
-        temp = downloadImages(pageImageLinks, pageLocalDir)
+        noImagesDownloaded = downloadImages(pageImageLinks, pageLocalDir)
 
-        # Analyze the images with face_recognition package
+        # Count how many faces are on page with face_recognition package
+        pageFaces = getFaces(pageLocalDir)
+        pageFaceCount = 0
+        for faceCount in pageFaces.values():
+            pageFaceCount += faceCount
 
         # Append the wanted data to database
         cur.execute(
