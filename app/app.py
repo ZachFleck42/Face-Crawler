@@ -139,7 +139,7 @@ def downloadImages(imageLinks, path):
     return fileCounter
 
 
-def getFaces(path):
+def findImagesWithFaces(path):
     '''
     Fuction accepts a folder directory containing one or more images.
     Returns a dictionary with key values of {"filename": no. of faces in image}.
@@ -205,6 +205,7 @@ if __name__ == "__main__":
         # Perform error checking on the URL connection.
         # If webpage can't be properly connected to, an error is raised and
         # program skips to next url in the queue.
+        # TODO: Check more page status codes
         pageStatus = pageResponse.status_code
         if pageStatus != 200:
             print(f"ERROR: {pageURL} could not be accessed. Continuing...")
@@ -214,17 +215,16 @@ if __name__ == "__main__":
         webpage = BeautifulSoup(pageResponse.text, 'html.parser')
 
         # Download all images from webpage into a local file directory
-        # Directory takes form '/app/imgs/<website-host-name>/<webpage-path>
-        pageImageLinks = getImages(pageURL, webpage)
+        # Directory takes form '/app/imgs/<website-host-name>/<specific-webpage-path>
         pageLocalDir = "app/imgs" + "/" + (urlparse(pageURL)).hostname + (urlparse(pageURL)).path
+        pageImageLinks = getImages(pageURL, webpage)
         numDownloads = downloadImages(pageImageLinks, pageLocalDir)
 
         # Count how many faces are on the page with face_recognition package
-        pageFaceImages = getFaces(pageLocalDir)
-
+        imagesWithFaces = findImagesWithFaces(pageLocalDir)
         pageFaceCount = 0
-        for noFaces in pageFaceImages.values():
-            pageFaceCount += noFaces
+        for numFaces in imagesWithFaces.values():
+            pageFaceCount += numFaces
 
         websiteFaceCount += pageFaceCount
 
