@@ -2,6 +2,7 @@ FROM python:3.10.5
 
 RUN apt-get -y update
 
+# Install general dependencies
 RUN apt-get install -y --fix-missing \
     build-essential \
     cmake \
@@ -23,8 +24,10 @@ RUN apt-get install -y --fix-missing \
     python3-numpy \
     software-properties-common \
     zip \
+    unzip \
     && apt-get clean && rm -rf /tmp/* /var/tmp/
 
+# Install face_recognition package dependencies
 RUN cd ~ && \
     mkdir -p dlib && \
     git clone -b 'v19.9' --single-branch https://github.com/davisking/dlib.git dlib/ && \
@@ -35,4 +38,9 @@ WORKDIR /app
 
 COPY ./app .
 
+# Install Selenium dependencies
+RUN chmod +x install-selenium.sh && \
+    ./install-selenium.sh
+
+# Install Python packages
 RUN pip3 install -r requirements.txt

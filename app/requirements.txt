@@ -5,3 +5,5 @@ numpy
 pandas
 psycopg2
 requests
+selenium
+selenium-Screenshot

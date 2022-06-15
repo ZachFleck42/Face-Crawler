@@ -8,6 +8,7 @@ from psycopg2 import sql
 from Screenshot import Screenshot_Clipping
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from urllib.parse import urlparse
 
 # Store the initial URL as a global variable for reference across functions
@@ -157,7 +158,8 @@ if __name__ == "__main__":
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
-    driver = webdriver.Chrome(options=chrome_options)
+    webdriver_service = Service("/app/chromedriver/stable/chromedriver")
+    driver = webdriver.Chrome(service=webdriver_service, options=chrome_options)
 
     # Initialization is now done; begin processing the queue
     websiteFaceCount = 0
