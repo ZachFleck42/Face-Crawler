@@ -5,6 +5,9 @@ import requests
 import sys
 from bs4 import BeautifulSoup
 from psycopg2 import sql
+from Screenshot import Screenshot_Clipping
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from urllib.parse import urlparse
 
 # Store the initial URL as a global variable for reference across functions
@@ -80,6 +83,9 @@ def getLinks(webpageURL, parsedPage):
         if inQueue:
             continue
 
+        # Remove any dangling '/'s
+        links[index] = links[index].rstrip('/')
+
         # All filters passed; link is appended to 'clean' list
         linksClean.append(links[index])
 
@@ -87,82 +93,38 @@ def getLinks(webpageURL, parsedPage):
     return list(set(linksClean))
 
 
-def getImages(webpageURL, parsedPage):
-    '''
-    Accepts a webpage's URL and its BeautifulSoup4 nested data structure.
-    Returns a list of links to images (as strings) discovered on that webpage.
-    '''
-    # Find all valid images (not NoneType) from the <img> tags on the webpage
-    # Internal links are expanded to full URL, external links untouhced
-    imageLinks = []
-    for image in parsedPage.find_all('img'):
-        if (validImage := image.get('src')):
-            if validImage[0] == '/':
-                imageLinks.append(INITIAL_URL + validImage)
-            else:
-                imageLinks.append(validImage)
-
-    # Remove unwanted HTTP GET key-value pairs
-    for imageLink in imageLinks:
-        if '?' in imageLink:
-            imageLink = imageLink[:imageLink.index('?')]
-
-    # Only get images with acceptable file extensions
-    acceptableExtensions = ["jpg", "jpeg", "png", "bmp"]
-    for imageLink in imageLinks.copy():
-        imageExtension = imageLink.split('.')[-1]
-        if imageExtension not in acceptableExtensions:
-            imageLinks.remove(imageLink)
-
-    return imageLinks
-
-
-def downloadImages(imageLinks, path):
-    '''
-    Accepts a list of URLs to images (as strings) and a path to a local directory.
-    Function will download the images and store them in the directory.
-    Returns number of files downloaded as an int.
-    '''
-    # Create a directory for the webpage (if one does not already exist)
+def getScreenshot(driver, url):
+    """
+    Accepts a web driver and a URL.
+    Takes a screenshot of the full webpage and stores it in a local directory. 
+    Returns the file's path as a string.s
+    """
+    # Assign and create a path and filename for the screenshot
+    # Directory will be './imgs/<URL-hostname>/<URL-path>'
+    path = "./imgs/" + urlparse(url).hostname
     if not os.path.exists(path):
         os.makedirs(path)
 
-    # Download all of the images in imageLinks to the directory
-    fileCounter = 0
-    for url in imageLinks:
-        filename = os.path.join(path, url.split("/")[-1])
-        with open(filename, 'wb') as f:
-            urlResponse = requests.get(url)
-            f.write(urlResponse.content)
-            fileCounter += 1
+    # Assign a filename for the screenshot using the URL's path
+    if not (filename := urlparse(url).path):
+        filename = "index.png"
+    filename = filename[1:].replace("/", "_") + ".png"
 
-    return fileCounter
+    # Take the screenshot, save it to the assigned path, and return the path
+    driver.get(pageURL)
+    ss = Screenshot_Clipping.Screenshot()
+    return ss.full_Screenshot(driver, save_path=path, image_name=filename)
 
 
-def findImagesWithFaces(path):
+def countFaces(path):
     '''
-    Fuction accepts a folder directory containing one or more images.
+    Fuction accepts a path to an image.
     Returns a dictionary with key values of {"filename": no. of faces in image}.
-    Function will also delete all images in path that do not contain faces.
     '''
-    faces = {}
-    # Iterate through each file in the specified directory
-    for file in os.listdir(path):
-        fileName = os.path.join(path, file)
-        # Make sure 'path' is to a file, not a directory
-        if os.path.isfile(fileName):
-            image = face_recognition.load_image_file(fileName)
-            face_locations = face_recognition.face_locations(image)
-        else:
-            continue
+    image = face_recognition.load_image_file(path)
+    face_locations = face_recognition.face_locations(image)
 
-        # If the image has no faces, delete it from local directory
-        if len(face_locations) > 0:
-            faces[fileName] = len(face_locations)
-        else:
-            os.remove(fileName)
-
-    return faces
+    return len(face_locations)
 
 
 if __name__ == "__main__":
@@ -191,6 +153,12 @@ if __name__ == "__main__":
     cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
                 .format(sql.Identifier(websiteName)))
 
+    # Initialize and run a headless Chrome web driver
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    driver = webdriver.Chrome(options=chrome_options)
+
     # Initialization is now done; begin processing the queue
     websiteFaceCount = 0
     for url in urls:
@@ -214,18 +182,11 @@ if __name__ == "__main__":
         # Parse the webpage into a BeautifulSoup4 nested data structure
         webpage = BeautifulSoup(pageResponse.text, 'html.parser')
 
-        # Download all images from webpage into a local file directory
-        # Directory takes form '/app/imgs/<website-host-name>/<specific-webpage-path>
-        pageLocalDir = "app/imgs" + "/" + (urlparse(pageURL)).hostname + (urlparse(pageURL)).path
-        pageImageLinks = getImages(pageURL, webpage)
-        numDownloads = downloadImages(pageImageLinks, pageLocalDir)
+        # Save a screenshot of the webpage and get its path
+        pageScreenshot = getScreenshot(driver, pageURL)
 
-        # Count how many faces are on the page with face_recognition package
-        imagesWithFaces = findImagesWithFaces(pageLocalDir)
-        pageFaceCount = 0
-        for numFaces in imagesWithFaces.values():
-            pageFaceCount += numFaces
-
+        # Count how many faces are on the page #!
+        pageFaceCount = countFaces(pageScreenshot)
         websiteFaceCount += pageFaceCount
 
         # Append data to the database
