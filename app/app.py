@@ -11,16 +11,16 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from urllib.parse import urlparse
 
+# Create a queue of URLs to visit and collect data from.
+# Each URL will also have a corresponding 'depth', or number of links removed from the original URL.
+# Thus, the queue will be a list of tuples in the form (string URL, int Depth)
+urls = []
+
 # Store the initial URL as a global variable for reference across functions
 INITIAL_URL = sys.argv[1]
 
 # Define a 'maximum depth', or how far removed from the main URL the program should explore
 MAX_DEPTH = 3
-
-# Create a queue of URLs to visit and collect data from.
-# Each URL will also have a corresponding 'depth', or number of links removed from the original URL.
-# Thus, the queue will be a list of tuples in the form (string URL, int Depth)
-urls = []
 
 # Create a list of already-visited links to prevent visiting the same page twice
 visitedLinks = []
@@ -109,12 +109,25 @@ def getScreenshot(driver, url):
     # Assign a filename for the screenshot using the URL's path
     if not (filename := urlparse(url).path):
         filename = "index.png"
-    filename = filename[1:].replace("/", "_") + ".png"
+    else:
+        filename = filename[1:].replace("/", "_") + ".png"
+
+    # Resize the (headless) window to screenshot without scrolling
+    # This helps avoid persistent nav/infobars, cookie notifications, and other alerts
+    driver.get(url)
+    originalSize = driver.get_window_size()
+    required_width = driver.execute_script('return document.body.parentNode.scrollWidth')
+    required_height = driver.execute_script('return document.body.parentNode.scrollHeight')
+    driver.set_window_size(required_width, required_height)
 
     # Take the screenshot, save it to the assigned path, and return the path
-    driver.get(pageURL)
     ss = Screenshot_Clipping.Screenshot()
-    return ss.full_Screenshot(driver, save_path=path, image_name=filename)
+    imagePath = ss.full_Screenshot(driver, save_path=path, image_name=filename)
+
+    # Return the window to original size
+    driver.set_window_size(originalSize['width'], originalSize['height'])
+
+    return imagePath
 
 
 def countFaces(path):
@@ -155,9 +168,14 @@ if __name__ == "__main__":
                 .format(sql.Identifier(websiteName)))
 
     # Initialize and run a headless Chrome web driver
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-notifications")
+    chrome_options.add_argument("--disable-infobars")
+    chrome_options.add_argument('--hide-scrollbars')
+    chrome_options.add_argument('window-size=1920x1080')
     webdriver_service = Service("/app/chromedriver/stable/chromedriver")
     driver = webdriver.Chrome(service=webdriver_service, options=chrome_options)
 
@@ -170,7 +188,7 @@ if __name__ == "__main__":
 
         # Use Requests package to obtain a 'Response' object from the webpage,
         # containing page's HTML, connection status, and other useful info.
-        pageResponse = requests.get(pageURL)
+        pageResponse = requests.get(pageURL, header=headers)
 
         # Perform error checking on the URL connection.
         # If webpage can't be properly connected to, an error is raised and
