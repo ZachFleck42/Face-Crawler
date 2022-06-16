@@ -4,6 +4,8 @@ import psycopg2
 import requests
 import sys
 from bs4 import BeautifulSoup
+from celery import Celery
+from PIL import Image, ImageDraw
 from psycopg2 import sql
 from Screenshot import Screenshot_Clipping
 from selenium import webdriver
@@ -20,7 +22,7 @@ urls = []
 INITIAL_URL = sys.argv[1]
 
 # Define a 'maximum depth', or how far removed from the main URL the program should explore
-MAX_DEPTH = 3
+MAX_DEPTH = sys.argv[2]
 
 # Create a list of already-visited links to prevent visiting the same page twice
 visitedLinks = []
@@ -135,20 +137,40 @@ def getScreenshot(driver, url):
 
 def countFaces(path):
     '''
-    Fuction accepts a path to an image.
-    Returns a dictionary with key values of {"filename": no. of faces in image}.
+    Accepts a path to an image.
+    Returns how many faces were found in the image and their locations.
     '''
     image = face_recognition.load_image_file(path)
-    face_locations = face_recognition.face_locations(image)
+    faceLocations = face_recognition.face_locations(image)
+    faceCount = len(faceLocations)
 
-    return len(face_locations)
+    return faceCount, faceLocations
+
+
+def highlightFaces(path, faceLocations):
+    '''
+    Aceepts a path to an image and the locations of all the faces in the image.
+    Uses PIL module to draw boxes around all faces.
+    Returns nothing.
+    '''
+    pilImage = Image.open(path)
+    for faceLocation in faceLocations:
+        top, right, bottom, left = faceLocation
+        shape = [(left, top), (right, bottom)]
+        img1 = ImageDraw.Draw(pilImage)
+
+        img1.rectangle(shape, outline="red", width=4)
+
+    pilImage.save(path)
+
+    return
 
 
 if __name__ == "__main__":
     # Check for valid number of arguments (2) in the script call.
-    if (len(sys.argv) != 2):
+    if (len(sys.argv) != 3):
         print("FATAL ERROR: Improper number of arguments. "
-              "Please call program as: 'python app.py YOUR-URL-HERE'")
+              "Please call program as: 'python app.py <URL> <MAX_DEPTH>")
         sys.exit()
     else:
         initialURL = sys.argv[1]
@@ -156,7 +178,7 @@ if __name__ == "__main__":
         urls.append((initialURL, 0))  # Initial URL has a depth of 0
 
     # Connect to PostgresSQL database and prepare to enter data
-    conn = psycopg2.connect(host="postgres-db", database="postgres", user="postgres", password="postgres")
+    conn = psycopg2.connect(host='db', database='postgres', user='postgres', password='postgres')
     cur = conn.cursor()
 
     # Create a new table for the website in the database
@@ -188,10 +210,11 @@ if __name__ == "__main__":
         # Append current URL to 'visitedLinks' list to prevent visiting again later
         pageURL = url[0]
         visitedLinks.append(pageURL)
+        print(f"Attempting to connect to URL: {pageURL}")
 
         # Use Requests package to obtain a 'Response' object from the webpage,
         # containing page's HTML, connection status, and other useful info.
-        pageResponse = requests.get(pageURL, header=headers)
+        pageResponse = requests.get(pageURL, headers=headers)
 
         # Perform error checking on the URL connection.
         # If webpage can't be properly connected to, an error is raised and
@@ -200,16 +223,19 @@ if __name__ == "__main__":
         if pageStatus != 200:
             print(f"ERROR: {pageURL} could not be accessed. Continuing...")
             continue
-
-        # Parse the webpage into a BeautifulSoup4 nested data structure
-        webpage = BeautifulSoup(pageResponse.text, 'html.parser')
+        else:
+            print("Connected. Taking screenshot...")
 
         # Save a screenshot of the webpage and get its path
         pageScreenshot = getScreenshot(driver, pageURL)
 
-        # Count how many faces are on the webpage
-        pageFaceCount = countFaces(pageScreenshot)
-        websiteFaceCount += pageFaceCount
+        # Count how many faces are on the page (and add to website total)
+        # Also modify the image by placing borders around each face
+        print("Screenshot taken. Searching for faces...")
+        pageFaceCount, pageFaceLocations = countFaces(pageScreenshot)
+        if pageFaceCount:
+            highlightFaces(pageScreenshot, pageFaceLocations)
+            websiteFaceCount += pageFaceCount
 
         # Append data to the database
         cur.execute(
@@ -219,10 +245,15 @@ if __name__ == "__main__":
 
         # If the current webpage is not at MAX_DEPTH, get a list of links found
         # in the page's <a> tags. Links will be 'cleaned' (see function docstring)
+        print(f"{pageFaceCount} faces detected.")
         if url[1] < MAX_DEPTH:
+            print("Getting links from page: ", end='')
             pageLinks = getLinks(pageResponse)
             for link in pageLinks:
                 urls.append((link, url[1] + 1))
+            print(f"{pageLinks}")
+
+        print("-----")
 
     # Print results to terminal
     query = sql.SQL("SELECT * FROM {};").format(sql.Identifier(websiteName))
@@ -237,5 +268,4 @@ if __name__ == "__main__":
     conn.close()
 
     # Print a conclusion message to indicate successful termination
-    print("------")
     print(f"Total faces found on website: {websiteFaceCount}")
