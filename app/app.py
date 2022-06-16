@@ -26,15 +26,18 @@ MAX_DEPTH = 3
 visitedLinks = []
 
 
-def getLinks(webpageURL, parsedPage):
+def getLinks(pageResponse):
     '''
-    Accepts a webpage's URL and its BeautifulSoup4 nested data structure.
+    Accepts a webpage in the form of a 'response object' from the Requests package.
     Returns a list of links (as strings) discovered on that webpage.
 
     Links are 'cleaned', meaning page anchor, email address, and telephone links
     are removed. Internal links are expanded to full URLs. Previously-visited 
     URLs, URLs currently in the queue, and links to different domains are also removed.
     '''
+    webpageURL = pageResponse.url
+    parsedPage = BeautifulSoup(pageResponse.text, 'html.parser')
+
     # Find all valid links (not NoneType) from the <a> tags on the webpage
     links = []
     for link in parsedPage.find_all('a'):
@@ -98,10 +101,10 @@ def getScreenshot(driver, url):
     """
     Accepts a web driver and a URL.
     Takes a screenshot of the full webpage and stores it in a local directory. 
-    Returns the file's path as a string.s
+    Returns the file's path as a string.
     """
     # Assign and create a path and filename for the screenshot
-    # Directory will be './imgs/<URL-hostname>/<URL-path>'
+    # Directory format: './imgs/<URL-hostname>/<URL-path>'
     path = "./imgs/" + urlparse(url).hostname
     if not os.path.exists(path):
         os.makedirs(path)
@@ -112,7 +115,7 @@ def getScreenshot(driver, url):
     else:
         filename = filename[1:].replace("/", "_") + ".png"
 
-    # Resize the (headless) window to screenshot without scrolling
+    # Resize the (headless) window to screenshot the page without scrolling
     # This helps avoid persistent nav/infobars, cookie notifications, and other alerts
     driver.get(url)
     originalSize = driver.get_window_size()
@@ -193,7 +196,6 @@ if __name__ == "__main__":
         # Perform error checking on the URL connection.
         # If webpage can't be properly connected to, an error is raised and
         # program skips to next url in the queue.
-        # TODO: Check more page status codes
         pageStatus = pageResponse.status_code
         if pageStatus != 200:
             print(f"ERROR: {pageURL} could not be accessed. Continuing...")
@@ -205,7 +207,7 @@ if __name__ == "__main__":
         # Save a screenshot of the webpage and get its path
         pageScreenshot = getScreenshot(driver, pageURL)
 
-        # Count how many faces are on the page #!
+        # Count how many faces are on the webpage
         pageFaceCount = countFaces(pageScreenshot)
         websiteFaceCount += pageFaceCount
 
@@ -215,14 +217,12 @@ if __name__ == "__main__":
             .format(sql.Identifier(websiteName)),
             [pageURL, pageFaceCount])
 
-        # Get a list of all the links found within a page's <a> tags
-        # Returned links will be 'cleaned' (see function docstring)
-        pageLinks = getLinks(pageURL, webpage)
-
-        # Append unvisited links to 'urls' list (if their depth does not exceed MAX_DEPTH)
-        if (newDepth := url[1] + 1) <= MAX_DEPTH:
-            for newURL in pageLinks:
-                urls.append((newURL, newDepth))
+        # If the current webpage is not at MAX_DEPTH, get a list of links found
+        # in the page's <a> tags. Links will be 'cleaned' (see function docstring)
+        if url[1] < MAX_DEPTH:
+            pageLinks = getLinks(pageResponse)
+            for link in pageLinks:
+                urls.append((link, url[1] + 1))
 
     # Print results to terminal
     query = sql.SQL("SELECT * FROM {};").format(sql.Identifier(websiteName))
