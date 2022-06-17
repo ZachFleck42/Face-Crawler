@@ -2,13 +2,11 @@ import os
 import psycopg2
 import sys
 import requests
-from tasks import processImage
 from bs4 import BeautifulSoup
 from psycopg2 import sql
-from Screenshot import Screenshot_Clipping
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+from tasks import processImage
 from urllib.parse import urlparse
 
 
@@ -30,11 +28,10 @@ visitedLinks = []
 def getLinks(pageResponse):
     '''
     Accepts a webpage in the form of a 'response object' from the Requests package.
-    Returns a list of links (as strings) discovered on that webpage.
-
+    Returns a list of cleaned links (as strings) discovered on that webpage.
     Links are 'cleaned', meaning page anchor, email address, and telephone links
-    are removed. Internal links are expanded to full URLs. Previously-visited 
-    URLs, URLs currently in the queue, and links to different domains are also removed.
+        are removed. Internal links are expanded to full URLs. Previously-visited 
+        URLs, URLs currently in the queue, and links to different domains are also removed.
     '''
     webpageURL = pageResponse.url
     parsedPage = BeautifulSoup(pageResponse.text, 'html.parser')
@@ -106,30 +103,30 @@ def getScreenshot(driver, url):
     """
     # Assign and create a path and filename for the screenshot
     # Directory format: './imgs/<URL-hostname>/<URL-path>'
-    path = "./imgs/" + urlparse(url).hostname
-    if not os.path.exists(path):
-        os.makedirs(path)
+    directory = "./imgs/" + urlparse(url).hostname
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
-    # Assign a filename for the screenshot using the URL's path
     if not (filename := urlparse(url).path):
         filename = "index.png"
     else:
         filename = filename[1:].replace("/", "_") + ".png"
 
+    imagePath = directory + '/' + filename
+    print(f"IMAGE PATH: {imagePath}")
+
     # Resize the (headless) window to screenshot the page without scrolling
     # This helps avoid persistent nav/infobars, cookie notifications, and other alerts
     driver.get(url)
-    originalSize = driver.get_window_size()
-    required_width = driver.execute_script('return document.body.parentNode.scrollWidth')
-    required_height = driver.execute_script('return document.body.parentNode.scrollHeight')
-    driver.set_window_size(required_width, required_height)
 
-    # Take the screenshot, save it to the assigned path, and return the path
-    ss = Screenshot_Clipping.Screenshot()
-    imagePath = ss.full_Screenshot(driver, save_path=path, image_name=filename)
+    required_height = driver.execute_script('return document.body.parentNode.scrollHeight')
+    driver.set_window_size(1280, required_height)
+
+    # Take the screenshot and save it to the assigned path
+    driver.save_screenshot(imagePath)
 
     # Return the window to original size
-    driver.set_window_size(originalSize['width'], originalSize['height'])
+    driver.set_window_size(1280, 720)
 
     return imagePath
 
@@ -147,17 +144,18 @@ if __name__ == "__main__":
 
     # Initialize and run a headless Chrome web driver
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-notifications")
-    chrome_options.add_argument("--disable-infobars")
-    chrome_options.add_argument('--hide-scrollbars')
-    chrome_options.add_argument('window-size=1280x720')
-    webdriver_service = Service("/app/chromedriver/stable/chromedriver")
-    driver = webdriver.Chrome(service=webdriver_service, options=chrome_options)
+    chromeOptions = Options()
+    chromeOptions.add_argument("--headless")
+    chromeOptions.add_argument("--no-sandbox")
+    chromeOptions.add_argument("--disable-notifications")
+    chromeOptions.add_argument("--disable-infobars")
+    chromeOptions.add_argument('--hide-scrollbars')
+    chromeOptions.add_argument('--disable-gpu')
+    chromeOptions.add_argument('--window-size=1280x720')
+    # chromeOptions.add_argument('user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36')
+    driver = webdriver.Remote(command_executor='http://selenium-hub:4444/wd/hub', options=chromeOptions)
 
-    # Connect to PostgresSQL database and prepare to enter data
+    # Connect to PostgresSQL database and create a table for the website
     conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
     cur = conn.cursor()
     tableName = (urlparse(initialURL).hostname).replace('.', '')
@@ -200,5 +198,8 @@ if __name__ == "__main__":
         pageScreenshot = getScreenshot(driver, pageURL)
         print("Screenshot saved. Sending to Celery worker for processing...")
 
-        # Do the thing # !!!
-        thing = processImage.delay(pageURL, pageScreenshot)  # !!!
+        # Send the screenshot to Celery for asynchronous processing (see tasks.py module)
+        # Also appends the page's face count to the PostgresSQL database
+        processImage.delay(pageURL, pageScreenshot)
+
+    driver.quit()

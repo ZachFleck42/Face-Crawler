@@ -11,7 +11,6 @@ def countFaces(path):
     Accepts a path to an image.
     Returns how many faces were found in the image and their locations.
     '''
-    print(f"Analyzing image: {path}")
     image = face_recognition.load_image_file(path)
     faceLocations = face_recognition.face_locations(image)
     faceCount = len(faceLocations)
@@ -37,12 +36,16 @@ def highlightFaces(path, faceLocations):
 
 
 def appendToDb(pageURL, pageFaceCount):
+    '''
+    Accepts a webpage URL and the number of faces detected on the page.
+    Appends both to an existing table for the website.
+    Returns nothing.
+    '''
     # Connect to PostgresSQL database and prepare to enter data
     conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
     tableName = (urlparse(pageURL).hostname).replace('.', '')
     cur = conn.cursor()
 
-    print(f"{pageURL} received by appendToDb and connection established (?)")
     # Append data to the database
     cur.execute(
         sql.SQL("INSERT INTO {} VALUES (%s, %s)")
@@ -53,16 +56,18 @@ def appendToDb(pageURL, pageFaceCount):
     conn.commit()
     cur.close()
     conn.close()
-    print("Allegedly, a change was made to the database...")
 
 
 @app.task
 def processImage(pageURL, imagePath):
-    print(f"tasks.py activated for {pageURL}")
+    '''
+    Accepts a webpage URL and a path to a locally stored screenshot of the page.
+    Counts how many faces are on the webpage and modifies the image by drawing
+        boxes around each face.
+    Appends the page URL and face count to an existing database.
+    '''
     pageFaceCount, pageFaceLocations = countFaces(imagePath)
-    print(f"Fouond {pageFaceCount} faces on {pageURL}")
     if pageFaceCount:
         highlightFaces(imagePath, pageFaceLocations)
 
-    print(f"Sending {pageURL} to appdendToDb...")
     appendToDb(pageURL, pageFaceCount)

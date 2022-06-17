@@ -35,15 +35,14 @@ RUN cd ~ && \
 # Install Chrome and Chromedriver for Selenium
 COPY install-selenium.sh .
 RUN  chmod +x install-selenium.sh && \
-    ./install-selenium.sh && \
-    mv chromedriver/ app/
+    ./install-selenium.sh
 
 # Install other Python packages
 COPY requirements.txt .
 RUN pip3 install -r requirements.txt
 
 # Clean up
-RUN cd ~ && \
+RUN cd / && \
     rm google-chrome-stable_current_amd64.deb && \
     rm chromedriver_linux64.zip && \
     rm install-selenium.sh && \

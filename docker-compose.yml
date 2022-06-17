@@ -9,8 +9,6 @@ services:
       - POSTGRES_PASSWORD=postgres
     ports:
       - 5432:5432
-    networks:
-      - backend
     volumes:
       - database:/var/lib/postgresql/data
 
@@ -19,24 +17,35 @@ services:
     ports:
       - 5672:5672
       - 15762:15762
-    networks:
-      - backend
+
+  selenium-hub:
+    image: selenium/hub:4.2
+    ports:
+      - 4444:4444
+
+  chrome:
+    image: selenium/node-chrome:102.0
+    shm_size: 2gb
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - NODE_MAX_INSTANCES=3
+      - NODE_MAX_SESSION=3
 
   app:
     build: .
     depends_on:
       - postgres
       - rabbitmq
+      - selenium-hub
     ports:
       - 8080:8080
-    networks:
-      - backend
     command: tail -f /dev/null
+    volumes:
+      - ./app:/app
 
 volumes:
   database:
-
-
-networks:
-  backend:
-    driver: bridge
