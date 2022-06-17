@@ -43,9 +43,9 @@ services:
       - selenium-hub
     ports:
       - 8080:8080
-    command: tail -f /dev/null
     volumes:
       - ./app:/app
+    command: tail -f /dev/null
 
 volumes:
   database:

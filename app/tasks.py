@@ -29,13 +29,12 @@ def highlightFaces(path, faceLocations):
         top, right, bottom, left = faceLocation
         shape = [(left, top), (right, bottom)]
         img1 = ImageDraw.Draw(pilImage)
-
         img1.rectangle(shape, outline="red", width=4)
 
     pilImage.save(path)
 
 
-def appendToDb(pageURL, pageFaceCount):
+def appendToDatabase(pageURL, pageFaceCount):
     '''
     Accepts a webpage URL and the number of faces detected on the page.
     Appends both to an existing table for the website.
@@ -43,8 +42,8 @@ def appendToDb(pageURL, pageFaceCount):
     '''
     # Connect to PostgresSQL database and prepare to enter data
     conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
-    tableName = (urlparse(pageURL).hostname).replace('.', '')
     cur = conn.cursor()
+    tableName = ((urlparse(pageURL).hostname).replace('.', '')).replace('www', '')
 
     # Append data to the database
     cur.execute(
@@ -70,4 +69,4 @@ def processImage(pageURL, imagePath):
     if pageFaceCount:
         highlightFaces(imagePath, pageFaceLocations)
 
-    appendToDb(pageURL, pageFaceCount)
+    appendToDatabase(pageURL, pageFaceCount)

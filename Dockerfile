@@ -1,6 +1,6 @@
 FROM python:3.10.5
 
-# Install and fix dependencies
+# Make sure general dependencies are installed
 RUN apt-get -y update && \
     apt-get install -y --fix-missing \
     build-essential \
@@ -26,8 +26,7 @@ RUN apt-get -y update && \
     unzip
 
 # Install dlib for face_recongition package
-RUN cd ~ && \
-    mkdir -p dlib && \
+RUN mkdir -p dlib && \
     git clone -b 'v19.9' --single-branch https://github.com/davisking/dlib.git dlib/ && \
     cd  dlib/ && \
     python3 setup.py install --yes USE_AVX_INSTRUCTIONS
@@ -42,12 +41,10 @@ COPY requirements.txt .
 RUN pip3 install -r requirements.txt
 
 # Clean up
-RUN cd / && \
-    rm google-chrome-stable_current_amd64.deb && \
+RUN rm google-chrome-stable_current_amd64.deb && \
     rm chromedriver_linux64.zip && \
     rm install-selenium.sh && \
     apt-get clean && rm -rf /tmp/* /var/tmp/
 
 WORKDIR /app
-
 COPY ./app .

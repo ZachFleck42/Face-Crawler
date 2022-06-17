@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 urls = []
 
 # Store the initial URL as a global variable for reference across functions
-INITIAL_URL = sys.argv[1]
+INITIAL_URL = (sys.argv[1]).rstrip('/')
 
 # Define a 'maximum depth', or how far removed from the main URL the program should explore
 MAX_DEPTH = int(sys.argv[2])
@@ -101,28 +101,29 @@ def getScreenshot(driver, url):
     Takes a screenshot of the full webpage and stores it in a local directory. 
     Returns the file's path as a string.
     """
-    # Assign and create a path and filename for the screenshot
-    # Directory format: './imgs/<URL-hostname>/<URL-path>'
+    # Assign and create a path for the screenshot
+    # Directory format: './imgs/<URL-hostname>'
     directory = "./imgs/" + urlparse(url).hostname
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+    # Assign and create a filename for the screenshot
+    # Filename format: <URL-path>.png
     if not (filename := urlparse(url).path):
         filename = "index.png"
     else:
         filename = filename[1:].replace("/", "_") + ".png"
 
-    imagePath = directory + '/' + filename
-    print(f"IMAGE PATH: {imagePath}")
-
     # Resize the (headless) window to screenshot the page without scrolling
     # This helps avoid persistent nav/infobars, cookie notifications, and other alerts
     driver.get(url)
-
     required_height = driver.execute_script('return document.body.parentNode.scrollHeight')
     driver.set_window_size(1280, required_height)
+    # Note that we could change the width with the same method. But we keep window at
+    # 'normal' width to prevent page elements from overlapping or covering others.
 
     # Take the screenshot and save it to the assigned path
+    imagePath = directory + '/' + filename
     driver.save_screenshot(imagePath)
 
     # Return the window to original size
@@ -138,9 +139,7 @@ if __name__ == "__main__":
               "Please call program as: 'python app.py <URL> <MAX_DEPTH>")
         sys.exit()
     else:
-        initialURL = sys.argv[1]
-        initialHost = urlparse(initialURL).hostname
-        urls.append((initialURL, 0))  # Initial URL has a depth of 0
+        urls.append((INITIAL_URL, 0))  # Initial URL has a depth of 0
 
     # Initialize and run a headless Chrome web driver
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
@@ -158,7 +157,7 @@ if __name__ == "__main__":
     # Connect to PostgresSQL database and create a table for the website
     conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
     cur = conn.cursor()
-    tableName = (urlparse(initialURL).hostname).replace('.', '')
+    tableName = ((urlparse(INITIAL_URL).hostname).replace('.', '')).replace('www', '')
     cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
                 .format(sql.Identifier(tableName)))
     conn.commit()
@@ -168,13 +167,14 @@ if __name__ == "__main__":
     # Initialization is now done; begin processing the queue
     websiteFaceCount = 0
     for url in urls:
-        # Append current URL to 'visitedLinks' list to prevent visiting again later
         pageURL = url[0]
+
+        # Append current URL to 'visitedLinks' list to prevent visiting again later
         visitedLinks.append(pageURL)
-        print(f"Attempting to connect to URL: {pageURL}")
 
         # Use Requests package to obtain a 'Response' object from the webpage,
         # containing page's HTML, connection status, and other useful info.
+        print(f"Attempting to connect to URL: {pageURL}")
         pageResponse = requests.get(pageURL, headers=headers)
 
         # Perform error checking on the URL connection.
@@ -185,21 +185,26 @@ if __name__ == "__main__":
             print(f"ERROR: {pageURL} could not be accessed. Continuing...")
             continue
         else:
-            print("Connected. Taking screenshot...")
+            print("Connected successfully. ", end='')
 
         # If the current webpage is not at MAX_DEPTH, get a list of links found
         # in the page's <a> tags. Links will be 'cleaned' (see function docstring)
         if url[1] < MAX_DEPTH:
+            print("Finding links on page...")
             pageLinks = getLinks(pageResponse)
             for link in pageLinks:
                 urls.append((link, url[1] + 1))
+            print("Links appended to queue: ")
+            print(f"{pageLinks}")
 
         # Save a screenshot of the webpage and get its path
+        print("Attempting to screenshot page...")
         pageScreenshot = getScreenshot(driver, pageURL)
-        print("Screenshot saved. Sending to Celery worker for processing...")
+        print(f"Screenshot saved as {pageScreenshot}. Sending to Celery worker for processing...")
 
         # Send the screenshot to Celery for asynchronous processing (see tasks.py module)
         # Also appends the page's face count to the PostgresSQL database
         processImage.delay(pageURL, pageScreenshot)
+        print("--------------------")
 
     driver.quit()
