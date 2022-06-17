@@ -1,8 +1,10 @@
 import os
 import psycopg2
-import sys
 import requests
+import sys
+import time
 from bs4 import BeautifulSoup
+from celery import group
 from psycopg2 import sql
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -30,7 +32,7 @@ def getLinks(pageResponse):
     Accepts a webpage in the form of a 'response object' from the Requests package.
     Returns a list of cleaned links (as strings) discovered on that webpage.
     Links are 'cleaned', meaning page anchor, email address, and telephone links
-        are removed. Internal links are expanded to full URLs. Previously-visited 
+        are removed. Internal links are expanded to full URLs. Previously-visited
         URLs, URLs currently in the queue, and links to different domains are also removed.
     '''
     webpageURL = pageResponse.url
@@ -98,7 +100,7 @@ def getLinks(pageResponse):
 def getScreenshot(driver, url):
     """
     Accepts a web driver and a URL.
-    Takes a screenshot of the full webpage and stores it in a local directory. 
+    Takes a screenshot of the full webpage and stores it in a local directory.
     Returns the file's path as a string.
     """
     # Assign and create a path for the screenshot
@@ -139,7 +141,8 @@ if __name__ == "__main__":
               "Please call program as: 'python app.py <URL> <MAX_DEPTH>")
         sys.exit()
     else:
-        urls.append((INITIAL_URL, 0))  # Initial URL has a depth of 0
+        urls.append((INITIAL_URL, 0))   # Initial URL has a depth of 0
+        startTime = time.time()         # Start timing how long program takes to run
 
     # Initialize and run a headless Chrome web driver
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
@@ -200,11 +203,37 @@ if __name__ == "__main__":
         # Save a screenshot of the webpage and get its path
         print("Attempting to screenshot page...")
         pageScreenshot = getScreenshot(driver, pageURL)
-        print(f"Screenshot saved as {pageScreenshot}. Sending to Celery worker for processing...")
+        print(f"Screenshot saved as {pageScreenshot}")
+        print("Sending to Celery worker for processing...")
 
         # Send the screenshot to Celery for asynchronous processing (see tasks.py module)
         # Also appends the page's face count to the PostgresSQL database
-        processImage.delay(pageURL, pageScreenshot)
+        task = processImage.delay(pageURL, pageScreenshot)
         print("--------------------")
 
+    # Webdriver no longer needed
     driver.quit()
+
+    # Wait for Celery to finish processing queue of images
+    print("All URLs visited! ", end='')
+    while not task.ready():
+        print("Waiting on Celery to finish...")
+        time.sleep(3)
+
+    print("Celery finished processing!")
+    print("--------------------")
+
+    # Fetch data from database
+    conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
+    cur = conn.cursor()
+    cur.execute(sql.SQL("SELECT * FROM {};").format(sql.Identifier(tableName)))
+    rows = cur.fetchall()
+
+    # Count how many faces were detected on the entire website
+    websiteFaceCount = 0
+    for row in rows:
+        websiteFaceCount += row[1]
+
+    # Print results to the console
+    print(f"Total number of faces found on {urlparse(INITIAL_URL).hostname}: {websiteFaceCount}")
+    print(f"Program took {(time.time() - startTime):.2f} seconds to run")

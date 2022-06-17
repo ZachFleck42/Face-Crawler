@@ -70,3 +70,5 @@ def processImage(pageURL, imagePath):
         highlightFaces(imagePath, pageFaceLocations)
 
     appendToDatabase(pageURL, pageFaceCount)
+
+    return pageFaceCount
