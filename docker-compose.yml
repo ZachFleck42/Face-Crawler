@@ -1,10 +1,10 @@
 version: '3.9'
 
 services:
-  postgres-db:
+  postgres:
     image: postgres:14.3
     environment:
-      - POSTGRES_DB=postgres
+      - POSTGRES_DB=faceCrawler
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
     ports:
@@ -14,10 +14,19 @@ services:
     volumes:
       - database:/var/lib/postgresql/data
 
+  rabbitmq:
+    image: rabbitmq:3.10.5
+    ports:
+      - 5672:5672
+      - 15762:15762
+    networks:
+      - backend
+
   app:
     build: .
     depends_on:
-      - postgres-db
+      - postgres
+      - rabbitmq
     ports:
       - 8080:8080
     networks:

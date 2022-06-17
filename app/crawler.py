@@ -1,17 +1,16 @@
-import face_recognition
 import os
 import psycopg2
-import requests
 import sys
+import requests
+from tasks import processImage
 from bs4 import BeautifulSoup
-from celery import Celery
-from PIL import Image, ImageDraw
 from psycopg2 import sql
 from Screenshot import Screenshot_Clipping
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from urllib.parse import urlparse
+
 
 # Create a queue of URLs to visit and collect data from.
 # Each URL will also have a corresponding 'depth', or number of links removed from the original URL.
@@ -22,7 +21,7 @@ urls = []
 INITIAL_URL = sys.argv[1]
 
 # Define a 'maximum depth', or how far removed from the main URL the program should explore
-MAX_DEPTH = sys.argv[2]
+MAX_DEPTH = int(sys.argv[2])
 
 # Create a list of already-visited links to prevent visiting the same page twice
 visitedLinks = []
@@ -135,37 +134,6 @@ def getScreenshot(driver, url):
     return imagePath
 
 
-def countFaces(path):
-    '''
-    Accepts a path to an image.
-    Returns how many faces were found in the image and their locations.
-    '''
-    image = face_recognition.load_image_file(path)
-    faceLocations = face_recognition.face_locations(image)
-    faceCount = len(faceLocations)
-
-    return faceCount, faceLocations
-
-
-def highlightFaces(path, faceLocations):
-    '''
-    Aceepts a path to an image and the locations of all the faces in the image.
-    Uses PIL module to draw boxes around all faces.
-    Returns nothing.
-    '''
-    pilImage = Image.open(path)
-    for faceLocation in faceLocations:
-        top, right, bottom, left = faceLocation
-        shape = [(left, top), (right, bottom)]
-        img1 = ImageDraw.Draw(pilImage)
-
-        img1.rectangle(shape, outline="red", width=4)
-
-    pilImage.save(path)
-
-    return
-
-
 if __name__ == "__main__":
     # Check for valid number of arguments (2) in the script call.
     if (len(sys.argv) != 3):
@@ -177,21 +145,6 @@ if __name__ == "__main__":
         initialHost = urlparse(initialURL).hostname
         urls.append((initialURL, 0))  # Initial URL has a depth of 0
 
-    # Connect to PostgresSQL database and prepare to enter data
-    conn = psycopg2.connect(host='db', database='postgres', user='postgres', password='postgres')
-    cur = conn.cursor()
-
-    # Create a new table for the website in the database
-    websiteName = []
-    for char in initialHost:
-        if char == '.':
-            break
-        websiteName.append(char)
-    websiteName = ''.join(websiteName)
-
-    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
-                .format(sql.Identifier(websiteName)))
-
     # Initialize and run a headless Chrome web driver
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
     chrome_options = Options()
@@ -200,9 +153,19 @@ if __name__ == "__main__":
     chrome_options.add_argument("--disable-notifications")
     chrome_options.add_argument("--disable-infobars")
     chrome_options.add_argument('--hide-scrollbars')
-    chrome_options.add_argument('window-size=1920x1080')
+    chrome_options.add_argument('window-size=1280x720')
     webdriver_service = Service("/app/chromedriver/stable/chromedriver")
     driver = webdriver.Chrome(service=webdriver_service, options=chrome_options)
+
+    # Connect to PostgresSQL database and prepare to enter data
+    conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
+    cur = conn.cursor()
+    tableName = (urlparse(initialURL).hostname).replace('.', '')
+    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
+                .format(sql.Identifier(tableName)))
+    conn.commit()
+    cur.close()
+    conn.close()
 
     # Initialization is now done; begin processing the queue
     websiteFaceCount = 0
@@ -226,46 +189,16 @@ if __name__ == "__main__":
         else:
             print("Connected. Taking screenshot...")
 
-        # Save a screenshot of the webpage and get its path
-        pageScreenshot = getScreenshot(driver, pageURL)
-
-        # Count how many faces are on the page (and add to website total)
-        # Also modify the image by placing borders around each face
-        print("Screenshot taken. Searching for faces...")
-        pageFaceCount, pageFaceLocations = countFaces(pageScreenshot)
-        if pageFaceCount:
-            highlightFaces(pageScreenshot, pageFaceLocations)
-            websiteFaceCount += pageFaceCount
-
-        # Append data to the database
-        cur.execute(
-            sql.SQL("INSERT INTO {} VALUES (%s, %s)")
-            .format(sql.Identifier(websiteName)),
-            [pageURL, pageFaceCount])
-
         # If the current webpage is not at MAX_DEPTH, get a list of links found
         # in the page's <a> tags. Links will be 'cleaned' (see function docstring)
-        print(f"{pageFaceCount} faces detected.")
         if url[1] < MAX_DEPTH:
-            print("Getting links from page: ", end='')
             pageLinks = getLinks(pageResponse)
             for link in pageLinks:
                 urls.append((link, url[1] + 1))
-            print(f"{pageLinks}")
 
-        print("-----")
+        # Save a screenshot of the webpage and get its path
+        pageScreenshot = getScreenshot(driver, pageURL)
+        print("Screenshot saved. Sending to Celery worker for processing...")
 
-    # Print results to terminal
-    query = sql.SQL("SELECT * FROM {};").format(sql.Identifier(websiteName))
-    cur.execute(query)
-    rows = cur.fetchall()
-    for row in rows:
-        print(row)
-
-    # Append changes to database and close connections
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    # Print a conclusion message to indicate successful termination
-    print(f"Total faces found on website: {websiteFaceCount}")
+        # Do the thing # !!!
+        thing = processImage.delay(pageURL, pageScreenshot)  # !!!
