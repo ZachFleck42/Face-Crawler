@@ -97,7 +97,7 @@ def getLinks(pageResponse):
     return list(set(linksClean))
 
 
-def getScreenshot(driver, url):
+def getScreenshot(driver, pageURL):
     """
     Accepts a web driver and a URL.
     Takes a screenshot of the full webpage and stores it in a local directory.
@@ -105,20 +105,20 @@ def getScreenshot(driver, url):
     """
     # Assign and create a path for the screenshot
     # Directory format: './imgs/<URL-hostname>'
-    directory = "./imgs/" + urlparse(url).hostname
+    directory = "./imgs/" + urlparse(pageURL).hostname
     if not os.path.exists(directory):
         os.makedirs(directory)
 
     # Assign and create a filename for the screenshot
     # Filename format: <URL-path>.png
-    if not (filename := urlparse(url).path):
+    if not (filename := urlparse(pageURL).path):
         filename = "index.png"
     else:
         filename = filename[1:].replace("/", "_") + ".png"
 
     # Resize the (headless) window to screenshot the page without scrolling
     # This helps avoid persistent nav/infobars, cookie notifications, and other alerts
-    driver.get(url)
+    driver.get(pageURL)
     required_height = driver.execute_script('return document.body.parentNode.scrollHeight')
     driver.set_window_size(1280, required_height)
     # Note that we could change the width with the same method. But we keep window at
@@ -144,6 +144,16 @@ if __name__ == "__main__":
         urls.append((INITIAL_URL, 0))   # Initial URL has a depth of 0
         startTime = time.time()         # Start timing how long program takes to run
 
+    # Connect to PostgresSQL database and create a table for the website
+    conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
+    cur = conn.cursor()
+    tableName = ((urlparse(INITIAL_URL).hostname).replace('.', '')).replace('www', '')
+    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
+                .format(sql.Identifier(tableName)))
+    conn.commit()
+    cur.close()
+    conn.close()
+
     # Initialize and run a headless Chrome web driver
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
     chromeOptions = Options()
@@ -156,16 +166,6 @@ if __name__ == "__main__":
     chromeOptions.add_argument('--window-size=1280x720')
     # chromeOptions.add_argument('user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36')
     driver = webdriver.Remote(command_executor='http://selenium-hub:4444/wd/hub', options=chromeOptions)
-
-    # Connect to PostgresSQL database and create a table for the website
-    conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
-    cur = conn.cursor()
-    tableName = ((urlparse(INITIAL_URL).hostname).replace('.', '')).replace('www', '')
-    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
-                .format(sql.Identifier(tableName)))
-    conn.commit()
-    cur.close()
-    conn.close()
 
     # Initialization is now done; begin processing the queue
     websiteFaceCount = 0
@@ -236,4 +236,4 @@ if __name__ == "__main__":
 
     # Print results to the console
     print(f"Total number of faces found on {urlparse(INITIAL_URL).hostname}: {websiteFaceCount}")
-    print(f"Program took {(time.time() - startTime):.2f} seconds to run")
+    print(f"Website crawled and processed in {(time.time() - startTime):.2f} seconds.")
