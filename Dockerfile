@@ -23,7 +23,8 @@ RUN apt-get -y update && \
     python3-numpy \
     software-properties-common \
     zip \
-    unzip
+    unzip && \
+    apt-get clean && rm -rf /tmp/* /var/tmp/
 
 # Install dlib for face_recongition package
 RUN mkdir -p dlib && \
@@ -31,20 +32,10 @@ RUN mkdir -p dlib && \
     cd  dlib/ && \
     python3 setup.py install --yes USE_AVX_INSTRUCTIONS
 
-# Install Chrome and Chromedriver for Selenium
-COPY install-selenium.sh .
-RUN  chmod +x install-selenium.sh && \
-    ./install-selenium.sh
-
-# Install other Python packages
+# Install required Python packages
 COPY requirements.txt .
 RUN pip3 install -r requirements.txt
 
-# Clean up
-RUN rm google-chrome-stable_current_amd64.deb && \
-    rm chromedriver_linux64.zip && \
-    rm install-selenium.sh && \
-    apt-get clean && rm -rf /tmp/* /var/tmp/
-
+# Copy scripts into container workdir
 WORKDIR /app
 COPY ./app .

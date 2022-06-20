@@ -247,10 +247,11 @@ if __name__ == "__main__":
         print("--------------------")
 
     # Webdriver no longer needed
+    print("All URLs visited!")
     driver.quit()
 
     # Wait for Celery to finish processing queue of images
-    print("All URLs visited! ", end='')
+    print("Waiting on Celery to finish...")
     waitTimer = 0
     while not task.ready():
         time.sleep(1)

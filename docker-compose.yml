@@ -32,8 +32,6 @@ services:
       - SE_EVENT_BUS_HOST=selenium-hub
       - SE_EVENT_BUS_PUBLISH_PORT=4442
       - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
-      - NODE_MAX_INSTANCES=3
-      - NODE_MAX_SESSION=3
 
   app:
     build: .
@@ -45,7 +43,7 @@ services:
       - 8080:8080
     volumes:
       - ./app:/app
-    command: tail -f /dev/null
+    command: celery -A celery_app worker --loglevel=info
 
 volumes:
   database:
