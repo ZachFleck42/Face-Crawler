@@ -4,7 +4,6 @@ import requests
 import sys
 import time
 from bs4 import BeautifulSoup
-from celery import group
 from psycopg2 import sql
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -25,6 +24,49 @@ MAX_DEPTH = int(sys.argv[2])
 
 # Create a list of already-visited links to prevent visiting the same page twice
 visitedLinks = []
+
+
+def tableExists(DbConnection, tableName):
+    '''
+    Accepts a database connection and a table name to check.
+    If table exists in the databse, function returns True. Returns false otherwise.
+    '''
+    cur = DbConnection.cursor()
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM information_schema.tables
+        WHERE table_name = '{0}'
+        """.format(tableName.replace('\'', '\'\'')))
+    if cur.fetchone()[0] == 1:
+        cur.close()
+        return True
+
+    cur.close()
+    return False
+
+
+def initializeDb(tableName):
+    '''
+    Connects to a database and creates a fresh table with the name {tableName}.
+    Closes connection afterwards and returns nothing.
+    '''
+    # Connect to PostgresSQL database and get a cursor
+    conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
+    cur = conn.cursor()
+
+    # If a table already exists for the website, delete it
+    if tableExists(conn, tableName):
+        cur.execute(sql.SQL("DROP TABLE {}")
+                    .format(sql.Identifier(tableName)))
+
+    # Create a new table for the website
+    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
+                .format(sql.Identifier(tableName)))
+
+    # Commit changes and close the connection
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def getLinks(pageResponse):
@@ -144,27 +186,18 @@ if __name__ == "__main__":
         urls.append((INITIAL_URL, 0))   # Initial URL has a depth of 0
         startTime = time.time()         # Start timing how long program takes to run
 
-    # Connect to PostgresSQL database and create a table for the website
-    conn = psycopg2.connect(host='postgres', database='faceCrawler', user='postgres', password='postgres')
-    cur = conn.cursor()
+    # Connect to a SQL database and create a table for the website
     tableName = ((urlparse(INITIAL_URL).hostname).replace('.', '')).replace('www', '')
-    cur.execute(sql.SQL("CREATE TABLE {} (page_url VARCHAR, face_count INT)")
-                .format(sql.Identifier(tableName)))
-    conn.commit()
-    cur.close()
-    conn.close()
+    initializeDb(tableName)
 
     # Initialize and run a headless Chrome web driver
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'}
     chromeOptions = Options()
     chromeOptions.add_argument("--headless")
     chromeOptions.add_argument("--no-sandbox")
     chromeOptions.add_argument("--disable-notifications")
     chromeOptions.add_argument("--disable-infobars")
     chromeOptions.add_argument('--hide-scrollbars')
-    chromeOptions.add_argument('--disable-gpu')
     chromeOptions.add_argument('--window-size=1280x720')
-    # chromeOptions.add_argument('user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36')
     driver = webdriver.Remote(command_executor='http://selenium-hub:4444/wd/hub', options=chromeOptions)
 
     # Initialization is now done; begin processing the queue
@@ -178,14 +211,16 @@ if __name__ == "__main__":
         # Use Requests package to obtain a 'Response' object from the webpage,
         # containing page's HTML, connection status, and other useful info.
         print(f"Attempting to connect to URL: {pageURL}")
-        pageResponse = requests.get(pageURL, headers=headers)
+        pageResponse = requests.get(pageURL, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36'})
 
         # Perform error checking on the URL connection.
         # If webpage can't be properly connected to, an error is raised and
         # program skips to next url in the queue.
         pageStatus = pageResponse.status_code
         if pageStatus != 200:
-            print(f"ERROR: {pageURL} could not be accessed. Continuing...")
+            print(f"ERROR: {pageURL} could not be accessed (Response code: {pageStatus}")
+            print("Continuing...")
+            print("--------------------")
             continue
         else:
             print("Connected successfully. ", end='')
@@ -216,9 +251,13 @@ if __name__ == "__main__":
 
     # Wait for Celery to finish processing queue of images
     print("All URLs visited! ", end='')
+    waitTimer = 0
     while not task.ready():
-        print("Waiting on Celery to finish...")
-        time.sleep(3)
+        time.sleep(1)
+        waitTimer += 1
+        if waitTimer == 10:
+            print("Waiting on Celery to finish...")
+            waitTimer = 0
 
     print("Celery finished processing!")
     print("--------------------")
@@ -236,4 +275,4 @@ if __name__ == "__main__":
 
     # Print results to the console
     print(f"Total number of faces found on {urlparse(INITIAL_URL).hostname}: {websiteFaceCount}")
-    print(f"Website crawled and processed in {(time.time() - startTime):.2f} seconds.")
+    print(f"Program took {(time.time() - startTime):.2f} seconds to run.")

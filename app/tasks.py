@@ -1,4 +1,3 @@
-import numbers
 import face_recognition
 import os
 import psycopg2
@@ -13,10 +12,12 @@ def countFaces(imagePath):
     Accepts a path to an image.
     Returns how many faces were found in the image and their locations.
     '''
-    # 'hog' model used as it is faster on CPUs (but less accurate)
-    # Switch model to 'cnn' for more accuracy (but significantly slower processing times)
+    # 'hog' model used over 'cnn' for significiantly faster runtime.
+    # 'numer_of_times_to_upsample' set to 2 slightly increases runtime but greatly
+    # improves face detection accuracy.
+    # Setitng it to 3 greatly increases runtime and tends to crash the program.
     image = face_recognition.load_image_file(imagePath)
-    faceLocations = face_recognition.face_locations(image, number_of_times_to_upsample=2, model='hog')
+    faceLocations = face_recognition.face_locations(image, number_of_times_to_upsample=1, model='hog')
     faceCount = len(faceLocations)
 
     return faceCount, faceLocations
