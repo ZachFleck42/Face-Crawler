@@ -202,11 +202,13 @@ if __name__ == "__main__":
 
     # Initialization is now done; begin processing the queue
     websiteFaceCount = 0
+    webpageVisitCount = 0
     for url in urls:
         pageURL = url[0]
 
         # Append current URL to 'visitedLinks' list to prevent visiting again later
         visitedLinks.append(pageURL)
+        webpageVisitCount += 1
 
         # Use Requests package to obtain a 'Response' object from the webpage,
         # containing page's HTML, connection status, and other useful info.
@@ -276,4 +278,5 @@ if __name__ == "__main__":
 
     # Print results to the console
     print(f"Total number of faces found on {urlparse(INITIAL_URL).hostname}: {websiteFaceCount}")
+    print(f"Total number of webpages analyzed: {webpageVisitCount}")
     print(f"Program took {(time.time() - startTime):.2f} seconds to run.")
