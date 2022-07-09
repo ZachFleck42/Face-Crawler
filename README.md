@@ -1,4 +1,4 @@
-# Face-Crawler
+# Face-Finding-Web-Crawler
 Crawl the web. Find the faces.
 
 Program crawls a domain (using Requests package, BS4 html parser, and Selenium headless browsers), takes screenshots of each page, and analyzes the screenshots for faces.
